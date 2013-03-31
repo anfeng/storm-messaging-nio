@@ -75,4 +75,34 @@ public class MessagingTest extends TestCase {
             assertTrue(e != null);
         }
     }
+
+    public void test_batch() {
+        try {
+            //create a context
+            Context context = new Context();
+            context.prepare(null);
+            
+            //set up a server
+            IConnection server = context.bind(null, port);
+            
+            //set up a client
+            IConnection client = context.connect(null, "localhost", port);
+
+            //client sends messages
+            for (int i=0; i<10; i++)
+                client.send(0, new Integer(i).toString().getBytes());
+            
+            //server receives messages
+            for (int j=0; j<10; j++) {
+                TaskMessage message = server.recv(0);
+                assertEquals(message.task(), 0);
+                assertEquals(new String(message.message()), new Integer(j).toString());
+            }
+            
+            //terminate
+            context.term();
+        } catch (RuntimeException e) {
+            assertTrue(e != null);
+        }
+    }
 }

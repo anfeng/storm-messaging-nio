@@ -70,7 +70,8 @@ public class Client implements IConnection {
         private final int baseSleepTimeMs;
         private final int maxSleepMs;
         private int retryCount;
-
+        private ByteBuffer resp_buffer;
+        
         /**
          * @param baseSleepTimeMs initial amount of time to wait between retries
          * @param maxRetries max number of times to retry
@@ -82,6 +83,7 @@ public class Client implements IConnection {
             retryCount = 0;
             this.baseSleepTimeMs = baseSleepTimeMs;
             this.maxSleepMs = maxSleepMs;
+            resp_buffer = ByteBuffer.allocate(1024);
         }
 
         @Override
@@ -92,16 +94,26 @@ public class Client implements IConnection {
                     //take a message from queue
                     TaskMessage message = message_queue.take();
                     // send a message to the server
-                    LOG.debug("message to be sent task:"+message.task()+" payload:"+new String(message.message()));
+                    LOG.debug("message to be sent task:"+message.task()+" payload:\'"+new String(message.message())+ "\' size:"+message.message().length);
                     ByteBuffer buffer = message.serialize();
                     buffer.flip();
-                    client.write(buffer);
+                    client.write(buffer).get();
+                    
+                    //get ack response
+                    recvAckResp();
                 }
             } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            } catch (ExecutionException e) {
                 throw new RuntimeException(e);
             }                 
         }
 
+        private void recvAckResp() throws InterruptedException, ExecutionException {
+            resp_buffer.clear();
+            client.read(resp_buffer).get();
+        }
+        
         @SuppressWarnings("unchecked")
         @Override
         public void failed(Throwable exc, Object attachment) {
