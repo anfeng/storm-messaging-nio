@@ -16,7 +16,7 @@ import org.slf4j.LoggerFactory;
 import backtype.storm.messaging.IConnection;
 import backtype.storm.messaging.TaskMessage;
 
-public class Client implements IConnection {
+class Client implements IConnection {
     private static final int MAX_RETRIES_LIMIT = 29;
     private static final int DEFAULT_MAX_SLEEP_MS = Integer.MAX_VALUE;
     private static final Logger LOG = LoggerFactory.getLogger(Client.class);
@@ -36,7 +36,7 @@ public class Client implements IConnection {
             client = AsynchronousSocketChannel.open();
             remote_addr = new InetSocketAddress(host, port);
             client.connect(remote_addr, (Object)null, 
-                    new Handler(1, MAX_RETRIES_LIMIT, DEFAULT_MAX_SLEEP_MS));
+                    new ClientHandler(1, MAX_RETRIES_LIMIT, DEFAULT_MAX_SLEEP_MS));
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -55,7 +55,10 @@ public class Client implements IConnection {
     public void close() {
         LOG.debug("Client close()");
         try {
-            client.close();
+            if (client != null) {
+                client.close();
+                client = null;
+            }
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -65,7 +68,7 @@ public class Client implements IConnection {
         throw new RuntimeException("Client connection should not receive any messages");
     }
 
-    class Handler implements CompletionHandler {
+    class ClientHandler implements CompletionHandler {
         private final Random random = new Random();
         private final int baseSleepTimeMs;
         private final int maxSleepMs;
@@ -77,7 +80,7 @@ public class Client implements IConnection {
          * @param maxRetries max number of times to retry
          * @param maxSleepMs max time in ms to sleep on each retry
          */
-        public Handler(int baseSleepTimeMs, int maxRetries, int maxSleepMs)
+        ClientHandler(int baseSleepTimeMs, int maxRetries, int maxSleepMs)
         {
             validateMaxRetries(maxRetries);
             retryCount = 0;
@@ -105,7 +108,7 @@ public class Client implements IConnection {
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             } catch (ExecutionException e) {
-                throw new RuntimeException(e);
+                close();
             }                 
         }
 
@@ -118,7 +121,7 @@ public class Client implements IConnection {
         @Override
         public void failed(Throwable exc, Object attachment) {
             try {
-                client.close();
+                close();
 
                 Thread.sleep(getSleepTimeMs()*1000);
                 retryCount++;
