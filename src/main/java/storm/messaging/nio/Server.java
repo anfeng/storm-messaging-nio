@@ -1,6 +1,7 @@
 package storm.messaging.nio;
 
 import java.net.InetSocketAddress;
+import static java.net.StandardSocketOptions.*;
 import java.util.Map;
 import java.io.IOException;
 import java.net.InetAddress;
@@ -18,10 +19,8 @@ import org.slf4j.LoggerFactory;
 import backtype.storm.messaging.IConnection;
 import backtype.storm.messaging.TaskMessage;
 
-
 class Server implements IConnection {
     private static final Logger LOG = LoggerFactory.getLogger(Server.class);
-    private static final int BUFFER_SIZE = 1024;
     private static final int THREAD_POOL_SIZE = 2;
     Map storm_conf;
     int port;
@@ -79,8 +78,9 @@ class Server implements IConnection {
     }
 
     class ServerHandler implements CompletionHandler<AsynchronousSocketChannel,Void> {
-        private final TaskMessage ACK_RESP = new TaskMessage(-1, new String("ack").getBytes());
-
+        public  final TaskMessage ACK_RESP = new TaskMessage(-1, "ack".getBytes());
+        private final ByteBuffer header_buffer = ByteBuffer.allocate(4);
+        
         @Override
         public void completed(AsynchronousSocketChannel channel, Void att) {
             // accept the next connection
@@ -88,16 +88,34 @@ class Server implements IConnection {
 
             // handle this connection
             try {
+                channel.setOption(SO_RCVBUF, 1024*1024);
                 while (true) {
-                    ByteBuffer buffer = ByteBuffer.allocateDirect(BUFFER_SIZE);
-                    channel.read(buffer).get();
-                    if (buffer.position()<=0) break;
+                    //read: header
+                    header_buffer.clear();
+                    int h = channel.read(header_buffer).get();
+                    if (h<=0) break;
                     
-                    buffer.flip();
+                    //get payload size
+                    header_buffer.flip();
+                    int payload_size = header_buffer.getInt();
+                    LOG.debug("payload size:"+payload_size);
+                    
+                    //read: payload
+                    ByteBuffer payload_buffer = ByteBuffer.allocate(payload_size);
+                    int readed = 0;
+                    while (readed<payload_size) { 
+                        int n=channel.read(payload_buffer).get();
+                        LOG.debug("received "+n+" bytes");
+                        if (n<=0) break;
+                        readed += n;
+                    };
+                    if (readed<=0) break;
+                    
+                    payload_buffer.flip();
                     TaskMessage message = new TaskMessage(0, null);
-                    message.deserialize(buffer);
+                    message.deserialize(payload_buffer);
                     message_queue.put(message);
-                    LOG.debug("message received with task:"+message.task()+" payload:\'"+new String(message.message())+ "\' size:"+message.message().length);
+                    LOG.debug("message received with task:"+message.task()+" payload size:"+message.message().length);
                     
                     //send ack
                     sendAckResp(channel);                    
@@ -107,6 +125,9 @@ class Server implements IConnection {
                 throw new RuntimeException(e);
             } catch (ExecutionException e) {
                 closeChannel(channel);
+            } catch (IOException e) {
+                closeChannel(channel);
+                throw new RuntimeException(e);
             } 
             
             closeChannel(channel);

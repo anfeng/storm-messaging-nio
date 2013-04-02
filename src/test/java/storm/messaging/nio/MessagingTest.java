@@ -105,4 +105,36 @@ public class MessagingTest extends TestCase {
             assertTrue(e != null);
         }
     }
+    
+    public void test_large_msg() {
+        try {
+            //create a context
+            Context context = new Context();
+            context.prepare(null);
+            
+            //set up a server
+            IConnection server = context.bind(null, port);
+            
+            //set up a client
+            IConnection client = context.connect(null, "localhost", port);
+
+            //big test msg
+            StringBuffer big_test_msg = new StringBuffer();
+            for (int i=0; i<1000*1024; i++)
+                big_test_msg.append('c');
+            
+            //client sends a message
+            client.send(0, big_test_msg.toString().getBytes());
+            
+            //server receives a message
+            TaskMessage message = server.recv(0);
+            
+            assertEquals(message.task(), 0);
+            assertEquals(new String(message.message()), big_test_msg.toString());
+            //terminate
+            context.term();
+        } catch (RuntimeException e) {
+            assertTrue(e != null);
+        }
+    }
 }
